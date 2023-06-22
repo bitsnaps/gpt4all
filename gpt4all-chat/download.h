@@ -20,8 +20,11 @@ struct ModelInfo {
     Q_PROPERTY(bool bestGPTJ MEMBER bestGPTJ)
     Q_PROPERTY(bool bestLlama MEMBER bestLlama)
     Q_PROPERTY(bool bestMPT MEMBER bestMPT)
+    Q_PROPERTY(bool isChatGPT MEMBER isChatGPT)
     Q_PROPERTY(QString description MEMBER description)
-    Q_PROPERTY(QString requires MEMBER requires)
+    Q_PROPERTY(QString requiresVersion MEMBER requiresVersion)
+    Q_PROPERTY(QString deprecatedVersion MEMBER deprecatedVersion)
+    Q_PROPERTY(QString url MEMBER url)
 
 public:
     QString filename;
@@ -33,8 +36,11 @@ public:
     bool bestGPTJ = false;
     bool bestLlama = false;
     bool bestMPT = false;
+    bool isChatGPT = false;
     QString description;
-    QString requires;
+    QString requiresVersion;
+    QString deprecatedVersion;
+    QString url;
 };
 Q_DECLARE_METATYPE(ModelInfo)
 
@@ -88,6 +94,8 @@ public:
     Q_INVOKABLE void updateReleaseNotes();
     Q_INVOKABLE void downloadModel(const QString &modelFile);
     Q_INVOKABLE void cancelDownload(const QString &modelFile);
+    Q_INVOKABLE void installModel(const QString &modelFile, const QString &apiKey);
+    Q_INVOKABLE void removeModel(const QString &modelFile);
     Q_INVOKABLE QString defaultLocalModelsPath() const;
     Q_INVOKABLE QString downloadLocalModelsPath() const;
     Q_INVOKABLE void setDownloadLocalModelsPath(const QString &modelPath);

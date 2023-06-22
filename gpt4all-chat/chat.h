@@ -7,7 +7,7 @@
 
 #include "chatllm.h"
 #include "chatmodel.h"
-#include "server.h"
+#include "database.h"
 
 class Chat : public QObject
 {
@@ -22,10 +22,23 @@ class Chat : public QObject
     Q_PROPERTY(bool isRecalc READ isRecalc NOTIFY recalcChanged)
     Q_PROPERTY(QList<QString> modelList READ modelList NOTIFY modelListChanged)
     Q_PROPERTY(bool isServer READ isServer NOTIFY isServerChanged)
+    Q_PROPERTY(QString responseState READ responseState NOTIFY responseStateChanged)
+    Q_PROPERTY(QList<QString> collectionList READ collectionList NOTIFY collectionListChanged)
+    Q_PROPERTY(QString modelLoadingError READ modelLoadingError NOTIFY modelLoadingErrorChanged)
+    Q_PROPERTY(QString tokenSpeed READ tokenSpeed NOTIFY tokenSpeedChanged);
     QML_ELEMENT
     QML_UNCREATABLE("Only creatable from c++!")
 
 public:
+    enum ResponseState {
+        ResponseStopped,
+        LocalDocsRetrieval,
+        LocalDocsProcessing,
+        PromptProcessing,
+        ResponseGeneration
+    };
+    Q_ENUM(ResponseState)
+
     explicit Chat(QObject *parent = nullptr);
     explicit Chat(bool isServer, QObject *parent = nullptr);
     virtual ~Chat();
@@ -48,8 +61,11 @@ public:
     Q_INVOKABLE void stopGenerating();
     Q_INVOKABLE void newPromptResponsePair(const QString &prompt);
 
+    QList<ResultInfo> databaseResults() const { return m_databaseResults; }
+
     QString response() const;
     bool responseInProgress() const { return m_responseInProgress; }
+    QString responseState() const;
     QString modelName() const;
     void setModelName(const QString &modelName);
     bool isRecalc() const;
@@ -67,19 +83,31 @@ public:
     QList<QString> modelList() const;
     bool isServer() const { return m_isServer; }
 
+    QList<QString> collectionList() const;
+
+    Q_INVOKABLE bool hasCollection(const QString &collection) const;
+    Q_INVOKABLE void addCollection(const QString &collection);
+    Q_INVOKABLE void removeCollection(const QString &collection);
+    void resetResponseState();
+
+    QString modelLoadingError() const { return m_modelLoadingError; }
+
+    QString tokenSpeed() const { return m_tokenSpeed; }
+
 public Q_SLOTS:
     void serverNewPromptResponsePair(const QString &prompt);
 
 Q_SIGNALS:
-    void idChanged();
+    void idChanged(const QString &id);
     void nameChanged();
     void chatModelChanged();
     void isModelLoadedChanged();
     void responseChanged();
     void responseInProgressChanged();
-    void promptRequested(const QString &prompt, const QString &prompt_template, int32_t n_predict,
-        int32_t top_k, float top_p, float temp, int32_t n_batch, float repeat_penalty, int32_t repeat_penalty_tokens,
-        int32_t n_threads);
+    void responseStateChanged();
+    void promptRequested(const QList<QString> &collectionList, const QString &prompt, const QString &prompt_template,
+        int32_t n_predict, int32_t top_k, float top_p, float temp, int32_t n_batch, float repeat_penalty,
+        int32_t repeat_penalty_tokens, int32_t n_threads);
     void regenerateResponseRequested();
     void resetResponseRequested();
     void resetContextRequested();
@@ -90,29 +118,45 @@ Q_SIGNALS:
     void loadModelRequested(const QString &modelName);
     void generateNameRequested();
     void modelListChanged();
-    void modelLoadingError(const QString &error);
+    void modelLoadingErrorChanged();
     void isServerChanged();
+    void collectionListChanged(const QList<QString> &collectionList);
+    void tokenSpeedChanged();
+    void defaultModelChanged(const QString &defaultModel);
 
 private Q_SLOTS:
-    void handleResponseChanged();
-    void handleModelLoadedChanged();
-    void responseStarted();
+    void handleResponseChanged(const QString &response);
+    void handleModelLoadedChanged(bool);
+    void promptProcessing();
     void responseStopped();
-    void generatedNameChanged();
+    void generatedNameChanged(const QString &name);
     void handleRecalculating();
-    void handleModelNameChanged();
+    void handleModelLoadingError(const QString &error);
+    void handleTokenSpeedChanged(const QString &tokenSpeed);
+    void handleDatabaseResultsChanged(const QList<ResultInfo> &results);
+    void handleModelListChanged();
+    void handleDownloadLocalModelsPathChanged();
 
 private:
     QString m_id;
     QString m_name;
+    QString m_generatedName;
     QString m_userName;
-    QString m_savedModelName;
+    QString m_modelName;
+    QString m_modelLoadingError;
+    QString m_tokenSpeed;
+    QString m_response;
+    QList<QString> m_collections;
     ChatModel *m_chatModel;
     bool m_responseInProgress;
+    ResponseState m_responseState;
     qint64 m_creationDate;
     ChatLLM *m_llmodel;
+    QList<ResultInfo> m_databaseResults;
     bool m_isServer;
     bool m_shouldDeleteLater;
+    bool m_isModelLoaded;
+    QFileSystemWatcher *m_watcher;
 };
 
 #endif // CHAT_H

@@ -18,7 +18,7 @@ One click installers for macOS, Linux, and Windows at https://gpt4all.io
 * Cross-platform (Linux, Windows, MacOSX)
 * Fast CPU based inference using ggml for GPT-J based models
 * The UI is made to look and feel like you've come to expect from a chatty gpt
-* Check for updates so you can alway stay fresh with latest models
+* Check for updates so you can always stay fresh with latest models
 * Easy to install with precompiled binaries available for all three major desktop platforms
 * Multi-modal - Ability to load more than one model and switch between them
 * Supports both llama.cpp and gptj.cpp style models
@@ -36,7 +36,7 @@ One click installers for macOS, Linux, and Windows at https://gpt4all.io
 * Typescript bindings
 * Plugin support for langchain other developer tools
 * Save your prompt/responses to disk
-* Upload prompt/respones manually/automatically to nomic.ai to aid future training runs
+* Upload prompt/response manually/automatically to nomic.ai to aid future training runs
 * Syntax highlighting support for programming languages, etc.
 * REST API with a built-in webserver in the chat gui itself with a headless operation mode as well
 * Advanced settings for changing temperature, topk, etc. (DONE)
@@ -54,9 +54,9 @@ If you've already checked out the source code and/or built the program make sure
 * https://gpt4all.io/models/ggml-mpt-7b-chat.bin (default) (md5sum 756249d3d6abe23bde3b1ae272628640) Current best non-commercially licensable chat model based on MPT and trained by Mosaic ML.
 * https://gpt4all.io/models/ggml-gpt4all-j-v1.3-groovy.bin (default) (md5sum 81a09a0ddf89690372fc296ff7f625af) Current best commercially licensable model based on GPT-J and trained by Nomic AI on the latest curated GPT4All dataset.
 * https://gpt4all.io/models/ggml-gpt4all-l13b-snoozy.bin (md5sum 91f886b68fbce697e9a3cd501951e455) Current best non-commercially licensable model based on Llama 13b and trained by Nomic AI on the latest curated GPT4All dataset.
-* https://gpt4all.io/models/ggml-gpt4all-j-v1.2-jazzy.bin (md5sum 879344aaa9d62fdccbda0be7a09e7976) An commercially licensable model based on GPT-J and trained by Nomic AI on the v2 GPT4All dataset.
-* https://gpt4all.io/models/ggml-gpt4all-j-v1.1-breezy.bin (md5sum 61d48a82cb188cceb14ebb8082bfec37) An commercially licensable model based on GPT-J and trained by Nomic AI on the v1 GPT4All dataset.
-* https://gpt4all.io/models/ggml-gpt4all-j.bin (md5sum 5b5a3f9b858d33b29b52b89692415595) An commercially licensable model based on GPT-J and trained by Nomic AI on the v0 GPT4All dataset.
+* https://gpt4all.io/models/ggml-gpt4all-j-v1.2-jazzy.bin (md5sum 879344aaa9d62fdccbda0be7a09e7976) A commercially licensable model based on GPT-J and trained by Nomic AI on the v2 GPT4All dataset.
+* https://gpt4all.io/models/ggml-gpt4all-j-v1.1-breezy.bin (md5sum 61d48a82cb188cceb14ebb8082bfec37) A commercially licensable model based on GPT-J and trained by Nomic AI on the v1 GPT4All dataset.
+* https://gpt4all.io/models/ggml-gpt4all-j.bin (md5sum 5b5a3f9b858d33b29b52b89692415595) A commercially licensable model based on GPT-J and trained by Nomic AI on the v0 GPT4All dataset.
 * https://gpt4all.io/models/ggml-vicuna-7b-1.1-q4_2.bin (md5sum 29119f8fa11712704c6b22ac5ab792ea) An non-commercially licensable model based on Llama 7b and trained by teams from UC Berkeley, CMU, Stanford, MBZUAI, and UC San Diego.
 * https://gpt4all.io/models/ggml-vicuna-13b-1.1-q4_2.bin (md5sum 95999b7b0699e2070af63bf5d34101a8) An non-commercially licensable model based on Llama 13b and trained by teams from UC Berkeley, CMU, Stanford, MBZUAI, and UC San Diego.
 * https://gpt4all.io/models/ggml-wizardLM-7B.q4_2.bin (md5sum 99e6d129745a3f1fb1121abed747b05a) An non-commercially licensable model based on Llama 7b and trained by Microsoft and Peking University.

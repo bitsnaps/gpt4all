@@ -1,54 +1,63 @@
 #include "llmodel_c.h"
+#include "llmodel.h"
 
-#include "gptj.h"
-#include "llamamodel.h"
-#include "mpt.h"
+#include <cstring>
+#include <cerrno>
+#include <utility>
+
 
 struct LLModelWrapper {
     LLModel *llModel = nullptr;
     LLModel::PromptContext promptContext;
+    ~LLModelWrapper() { delete llModel; }
 };
 
-llmodel_model llmodel_gptj_create()
-{
-    LLModelWrapper *wrapper = new LLModelWrapper;
-    wrapper->llModel = new GPTJ;
-    return reinterpret_cast<void*>(wrapper);
+
+thread_local static std::string last_error_message;
+
+
+llmodel_model llmodel_model_create(const char *model_path) {
+    auto fres = llmodel_model_create2(model_path, "auto", nullptr);
+    if (!fres) {
+        fprintf(stderr, "Invalid model file\n");
+    }
+    return fres;
 }
 
-void llmodel_gptj_destroy(llmodel_model gptj)
-{
-    LLModelWrapper *wrapper = reinterpret_cast<LLModelWrapper*>(gptj);
-    delete wrapper->llModel;
-    delete wrapper;
+llmodel_model llmodel_model_create2(const char *model_path, const char *build_variant, llmodel_error *error) {
+    auto wrapper = new LLModelWrapper;
+    int error_code = 0;
+
+    try {
+        wrapper->llModel = LLModel::construct(model_path, build_variant);
+    } catch (const std::exception& e) {
+        error_code = EINVAL;
+        last_error_message = e.what();
+    }
+
+    if (!wrapper->llModel) {
+        delete std::exchange(wrapper, nullptr);
+        // Get errno and error message if none
+        if (error_code == 0) {
+            if (errno != 0) {
+                error_code = errno;
+                last_error_message = std::strerror(error_code);
+            } else {
+                error_code = ENOTSUP;
+                last_error_message = "Model format not supported (no matching implementation found)";
+            }
+        }
+        // Set error argument
+        if (error) {
+            error->message = last_error_message.c_str();
+            error->code = error_code;
+        }
+    }
+    return reinterpret_cast<llmodel_model*>(wrapper);
 }
 
-llmodel_model llmodel_mpt_create()
-{
-    LLModelWrapper *wrapper = new LLModelWrapper;
-    wrapper->llModel = new MPT;
-    return reinterpret_cast<void*>(wrapper);
-}
-
-void llmodel_mpt_destroy(llmodel_model mpt)
-{
-    LLModelWrapper *wrapper = reinterpret_cast<LLModelWrapper*>(mpt);
-    delete wrapper->llModel;
-    delete wrapper;
-}
-
-llmodel_model llmodel_llama_create()
-{
-    LLModelWrapper *wrapper = new LLModelWrapper;
-    wrapper->llModel = new LLamaModel;
-    return reinterpret_cast<void*>(wrapper);
-}
-
-void llmodel_llama_destroy(llmodel_model llama)
-{
-    LLModelWrapper *wrapper = reinterpret_cast<LLModelWrapper*>(llama);
-    delete wrapper->llModel;
-    delete wrapper;
+void llmodel_model_destroy(llmodel_model model) {
+    delete reinterpret_cast<LLModelWrapper*>(model);
 }
 
 bool llmodel_loadModel(llmodel_model model, const char *model_path)
@@ -98,7 +107,7 @@ bool recalculate_wrapper(bool is_recalculating, void *user_data) {
 }
 
 void llmodel_prompt(llmodel_model model, const char *prompt,
-                    llmodel_response_callback prompt_callback,
+                    llmodel_prompt_callback prompt_callback,
                     llmodel_response_callback response_callback,
                     llmodel_recalculate_callback recalculate_callback,
                     llmodel_prompt_context *ctx)
@@ -158,4 +167,14 @@ int32_t llmodel_threadCount(llmodel_model model)
 {
     LLModelWrapper *wrapper = reinterpret_cast<LLModelWrapper*>(model);
     return wrapper->llModel->threadCount();
+}
+
+void llmodel_set_implementation_search_path(const char *path)
+{
+    LLModel::setImplementationsSearchPath(path);
+}
+
+const char *llmodel_get_implementation_search_path()
+{
+    return LLModel::implementationsSearchPath().c_str();
 }

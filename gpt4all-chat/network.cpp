@@ -110,6 +110,9 @@ bool Network::packageAndSendJson(const QString &ingestId, const QString &json)
     if (!attribution.isEmpty())
         object.insert("network/attribution", attribution);
 
+    QString promptTemplate = settings.value("promptTemplate", QString()).toString();
+    object.insert("prompt_template", promptTemplate);
+
     QJsonDocument newDoc;
     newDoc.setObject(object);
 
@@ -123,7 +126,7 @@ bool Network::packageAndSendJson(const QString &ingestId, const QString &json)
     QSslConfiguration conf = request.sslConfiguration();
     conf.setPeerVerifyMode(QSslSocket::VerifyNone);
     request.setSslConfiguration(conf);
-    QByteArray body(newDoc.toJson());
+    QByteArray body(newDoc.toJson(QJsonDocument::Compact));
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QNetworkReply *jsonReply = m_networkManager.post(request, body);
     connect(jsonReply, &QNetworkReply::finished, this, &Network::handleJsonUploadFinished);
@@ -150,15 +153,16 @@ void Network::handleJsonUploadFinished()
         sendHealth();
     }
 
+#if defined(DEBUG)
     QByteArray jsonData = jsonReply->readAll();
     QJsonParseError err;
+
     QJsonDocument document = QJsonDocument::fromJson(jsonData, &err);
     if (err.error != QJsonParseError::NoError) {
         qDebug() << "ERROR: Couldn't parse: " << jsonData << err.errorString();
         return;
     }
 
-#if defined(DEBUG)
     printf("%s\n", qPrintable(document.toJson(QJsonDocument::Indented)));
     fflush(stdout);
 #endif
@@ -169,7 +173,7 @@ void Network::handleJsonUploadFinished()
 void Network::handleSslErrors(QNetworkReply *reply, const QList<QSslError> &errors)
 {
     QUrl url = reply->request().url();
-    for (auto e : errors)
+    for (const auto &e : errors)
         qWarning() << "ERROR: Received ssl error:" << e.errorString() << "for" << url;
 }
 
@@ -190,7 +194,7 @@ void Network::sendOptOut()
 
     QJsonDocument doc;
     doc.setArray(array);
-    sendMixpanel(doc.toJson(), true /*isOptOut*/);
+    sendMixpanel(doc.toJson(QJsonDocument::Compact), true /*isOptOut*/);
 
 #if defined(DEBUG)
     printf("%s %s\n", qPrintable("opt_out"), qPrintable(doc.toJson(QJsonDocument::Indented)));
@@ -238,6 +242,26 @@ void Network::sendModelDownloaderDialog()
     if (!m_usageStatsActive)
         return;
     sendMixpanelEvent("download_dialog");
+}
+
+void Network::sendInstallModel(const QString &model)
+{
+    if (!m_usageStatsActive)
+        return;
+    KeyValue kv;
+    kv.key = QString("model");
+    kv.value = QJsonValue(model);
+    sendMixpanelEvent("install_model", QVector<KeyValue>{kv});
+}
+
+void Network::sendRemoveModel(const QString &model)
+{
+    if (!m_usageStatsActive)
+        return;
+    KeyValue kv;
+    kv.key = QString("model");
+    kv.value = QJsonValue(model);
+    sendMixpanelEvent("remove_model", QVector<KeyValue>{kv});
 }
 
 void Network::sendDownloadStarted(const QString &model)
@@ -388,17 +412,12 @@ void Network::sendMixpanelEvent(const QString &ev, const QVector<KeyValue> &valu
         const QSize display = QGuiApplication::primaryScreen()->size();
         properties.insert("display", QString("%1x%2").arg(display.width()).arg(display.height()));
         properties.insert("ram", getSystemTotalRAM());
-#if defined(__x86_64__) || defined(__i386__)
-        properties.insert("avx", bool(__builtin_cpu_supports("avx")));
-        properties.insert("avx2", bool(__builtin_cpu_supports("avx2")));
-        properties.insert("fma", bool(__builtin_cpu_supports("fma")));
-#endif
 #if defined(Q_OS_MAC)
         properties.insert("cpu", QString::fromStdString(getCPUModel()));
 #endif
     }
 
-    for (auto p : values)
+    for (const auto& p : values)
         properties.insert(p.key, p.value);
 
     QJsonObject event;
@@ -410,7 +429,7 @@ void Network::sendMixpanelEvent(const QString &ev, const QVector<KeyValue> &valu
 
     QJsonDocument doc;
     doc.setArray(array);
-    sendMixpanel(doc.toJson());
+    sendMixpanel(doc.toJson(QJsonDocument::Compact));
 
 #if defined(DEBUG)
     printf("%s %s\n", qPrintable(ev), qPrintable(doc.toJson(QJsonDocument::Indented)));

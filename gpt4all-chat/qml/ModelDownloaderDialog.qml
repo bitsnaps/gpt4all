@@ -13,9 +13,10 @@ Dialog {
     modal: true
     opacity: 0.9
     closePolicy: LLM.chatListModel.currentChat.modelList.length === 0 ? Popup.NoAutoClose : (Popup.CloseOnEscape | Popup.CloseOnPressOutside)
+    padding: 20
+    bottomPadding: 30
     background: Rectangle {
         anchors.fill: parent
-        anchors.margins: -20
         color: theme.backgroundDarkest
         border.width: 1
         border.color: theme.dialogBorder
@@ -48,10 +49,20 @@ Dialog {
 
         Label {
             id: listLabel
-            text: "Available Models:"
+            text: qsTr("Available Models:")
             Layout.alignment: Qt.AlignLeft
             Layout.fillWidth: true
             color: theme.textColor
+        }
+
+        Label {
+            visible: !Download.modelList.length
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            horizontalAlignment: Qt.AlignHCenter
+            verticalAlignment: Qt.AlignVCenter
+            text: qsTr("Network error: could not retrieve http://gpt4all.io/models/models.json")
+            color: theme.mutedTextColor
         }
 
         ScrollView {
@@ -82,7 +93,7 @@ Dialog {
                         id: modelName
                         objectName: "modelName"
                         property string filename: modelData.filename
-                        text: filename.slice(5, filename.length - 4)
+                        text: !modelData.isChatGPT ? (filename.startsWith("ggml-") ? filename.slice(5, filename.length - 4) : filename.slice(0, filename.length - 4)) : filename
                         padding: 20
                         anchors.top: parent.top
                         anchors.left: parent.left
@@ -102,10 +113,13 @@ Dialog {
                         anchors.left: modelName.left
                         anchors.right: parent.right
                         wrapMode: Text.WordWrap
+                        textFormat: Text.StyledText
                         color: theme.textColor
+                        linkColor: theme.textColor
                         Accessible.role: Accessible.Paragraph
                         Accessible.name: qsTr("Description")
                         Accessible.description: qsTr("The description of the file")
+                        onLinkActivated: Qt.openUrlExternally(link)
                     }
 
                     Text {
@@ -195,7 +209,7 @@ Dialog {
                             Accessible.description: qsTr("Whether the file hash is being calculated")
                         }
 
-                        BusyIndicator {
+                        MyBusyIndicator {
                             id: busyCalcHash
                             anchors.right: parent.right
                             padding: 20
@@ -206,31 +220,93 @@ Dialog {
                         }
                     }
 
-                    Label {
-                        id: installedLabel
+                    Item {
                         anchors.top: modelName.top
+                        anchors.topMargin: 15
                         anchors.right: parent.right
-                        padding: 20
-                        objectName: "installedLabel"
-                        color: theme.textColor
-                        text: qsTr("Already installed")
                         visible: modelData.installed
-                        Accessible.role: Accessible.Paragraph
-                        Accessible.name: text
-                        Accessible.description: qsTr("Whether the file is already installed on your system")
+
+                        Label {
+                            id: installedLabel
+                            anchors.verticalCenter: removeButton.verticalCenter
+                            anchors.right: removeButton.left
+                            anchors.rightMargin: 15
+                            objectName: "installedLabel"
+                            color: theme.textColor
+                            text: qsTr("Already installed")
+                            Accessible.role: Accessible.Paragraph
+                            Accessible.name: text
+                            Accessible.description: qsTr("Whether the file is already installed on your system")
+                        }
+
+                        MyButton {
+                            id: removeButton
+                            text: "Remove"
+                            anchors.right: parent.right
+                            anchors.rightMargin: 20
+                            Accessible.description: qsTr("Remove button to remove model from filesystem")
+                            onClicked: {
+                                Download.removeModel(modelData.filename);
+                            }
+                        }
                     }
 
-                    Button {
-                        id: downloadButton
-                        contentItem: Text {
+                    Item {
+                        visible: modelData.isChatGPT && !modelData.installed
+                        anchors.top: modelName.top
+                        anchors.topMargin: 15
+                        anchors.right: parent.right
+
+                        TextField {
+                            id: openaiKey
+                            anchors.right: installButton.left
+                            anchors.rightMargin: 15
                             color: theme.textColor
-                            text: downloading ? "Cancel" : "Download"
+                            background: Rectangle {
+                                color: theme.backgroundLighter
+                                radius: 10
+                            }
+                            placeholderText: qsTr("enter $OPENAI_API_KEY")
+                            placeholderTextColor: theme.backgroundLightest
+                            Accessible.role: Accessible.EditableText
+                            Accessible.name: placeholderText
+                            Accessible.description: qsTr("Whether the file hash is being calculated")
                         }
+
+                        Button {
+                            id: installButton
+                            contentItem: Text {
+                                color: openaiKey.text === "" ? theme.backgroundLightest : theme.textColor
+                                text: "Install"
+                            }
+                            enabled: openaiKey.text !== ""
+                            anchors.right: parent.right
+                            anchors.rightMargin: 20
+                            background: Rectangle {
+                                opacity: .5
+                                border.color: theme.backgroundLightest
+                                border.width: 1
+                                radius: 10
+                                color: theme.backgroundLight
+                            }
+                            onClicked: {
+                                Download.installModel(modelData.filename, openaiKey.text);
+                            }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Install button")
+                            Accessible.description: qsTr("Install button to install chatgpt model")
+                        }
+                    }
+
+                    MyButton {
+                        id: downloadButton
+                        text: downloading ? qsTr("Cancel") : qsTr("Download")
                         anchors.top: modelName.top
                         anchors.right: parent.right
                         anchors.topMargin: 15
                         anchors.rightMargin: 20
-                        visible: !modelData.installed && !modelData.calcHash
+                        visible: !modelData.isChatGPT && !modelData.installed && !modelData.calcHash
+                        Accessible.description: qsTr("Cancel/Download button to stop/start the download")
                         onClicked: {
                             if (!downloading) {
                                 downloading = true;
@@ -240,17 +316,6 @@ Dialog {
                                 Download.cancelDownload(modelData.filename);
                             }
                         }
-                        background: Rectangle {
-                            opacity: .5
-                            border.color: theme.backgroundLightest
-                            border.width: 1
-                            radius: 10
-                            color: theme.backgroundLight
-                        }
-                        Accessible.role: Accessible.Button
-                        Accessible.name: text
-                        Accessible.description: qsTr("Cancel/Download button to stop/start the download")
-
                     }
                 }
 
@@ -272,26 +337,36 @@ Dialog {
                                 let progressBar = delegateItem.children.find(child => child.objectName === "itemProgressBar");
                                 progressBar.value = bytesReceived / bytesTotal;
 
+                                let updated = false;
+
                                 // Calculate the download speed
                                 if (lastUpdate[modelName] && lastUpdate[modelName].timestamp) {
                                     let timeDifference = currentTime - lastUpdate[modelName].timestamp;
-                                    let bytesDifference = bytesReceived - lastUpdate[modelName].bytesReceived;
-                                    let speed = (bytesDifference / timeDifference) * 1000; // bytes per second
-                                    delegateItem.downloading = true
+                                    if (timeDifference >= 1500) {
+                                        let bytesDifference = bytesReceived - lastUpdate[modelName].bytesReceived;
+                                        let speed = (bytesDifference / timeDifference) * 1000; // bytes per second
+                                        delegateItem.downloading = true
 
-                                    // Update the speed label
-                                    let speedLabel = delegateItem.children.find(child => child.objectName === "speedLabel");
-                                    if (speed < 1024) {
-                                        speedLabel.text = speed.toFixed(2) + " B/s";
-                                    } else if (speed < 1024 * 1024) {
-                                        speedLabel.text = (speed / 1024).toFixed(2) + " KB/s";
-                                    } else {
-                                        speedLabel.text = (speed / (1024 * 1024)).toFixed(2) + " MB/s";
+                                        // Update the speed label
+                                        let speedLabel = delegateItem.children.find(child => child.objectName === "speedLabel");
+                                        if (speed < 1024) {
+                                            speedLabel.text = speed.toFixed(2) + " B/s";
+                                        } else if (speed < 1024 * 1024) {
+                                            speedLabel.text = (speed / 1024).toFixed(2) + " KB/s";
+                                        } else {
+                                            speedLabel.text = (speed / (1024 * 1024)).toFixed(2) + " MB/s";
+                                        }
+
+                                        updated = true;
                                     }
+                                } else {
+                                    updated = true; // To get an initial entry in lastUpdate
                                 }
 
                                 // Update the lastUpdate object for the current model
-                                lastUpdate[modelName] = {"timestamp": currentTime, "bytesReceived": bytesReceived};
+                                if (updated) {
+                                    lastUpdate[modelName] = {"timestamp": currentTime, "bytesReceived": bytesReceived};
+                                }
                                 break;
                             }
                         }
@@ -329,9 +404,10 @@ Dialog {
             FolderDialog {
                 id: modelPathDialog
                 title: "Please choose a directory"
-                currentFolder: Download.downloadLocalModelsPath
+                currentFolder: "file://" + Download.downloadLocalModelsPath
                 onAccepted: {
-                    Download.downloadLocalModelsPath = selectedFolder
+                    modelPathDisplayField.text = selectedFolder
+                    Download.downloadLocalModelsPath = modelPathDisplayField.text
                     settings.modelPath = Download.downloadLocalModelsPath
                     settings.sync()
                 }
@@ -343,39 +419,28 @@ Dialog {
                 Layout.row: 1
                 Layout.column: 0
             }
-            TextField {
-                id: modelPathDisplayLabel
+            MyDirectoryField {
+                id: modelPathDisplayField
                 text: Download.downloadLocalModelsPath
-                readOnly: true
-                color: theme.textColor
                 Layout.fillWidth: true
                 ToolTip.text: qsTr("Path where model files will be downloaded to")
                 ToolTip.visible: hovered
                 Accessible.role: Accessible.ToolTip
-                Accessible.name: modelPathDisplayLabel.text
+                Accessible.name: modelPathDisplayField.text
                 Accessible.description: ToolTip.text
-                background: Rectangle {
-                    color: theme.backgroundLighter
-                    radius: 10
+                onEditingFinished: {
+                    if (isValid) {
+                        Download.downloadLocalModelsPath = modelPathDisplayField.text
+                        settings.modelPath = Download.downloadLocalModelsPath
+                        settings.sync()
+                    } else {
+                        text = Download.downloadLocalModelsPath
+                    }
                 }
             }
-            Button {
+            MyButton {
                 text: qsTr("Browse")
-                contentItem: Text {
-                    text: qsTr("Browse")
-                    horizontalAlignment: Text.AlignHCenter
-                    color: theme.textColor
-                    Accessible.role: Accessible.Button
-                    Accessible.name: text
-                    Accessible.description: qsTr("Opens a folder picker dialog to choose where to save model files")
-                }
-                background: Rectangle {
-                    opacity: .5
-                    border.color: theme.backgroundLightest
-                    border.width: 1
-                    radius: 10
-                    color: theme.backgroundLight
-                }
+                Accessible.description: qsTr("Opens a folder picker dialog to choose where to save model files")
                 onClicked: modelPathDialog.open()
             }
         }

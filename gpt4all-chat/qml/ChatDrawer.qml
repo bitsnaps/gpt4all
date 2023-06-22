@@ -32,27 +32,20 @@ Drawer {
         Accessible.name: qsTr("Drawer on the left of the application")
         Accessible.description: qsTr("Drawer that is revealed by pressing the hamburger button")
 
-        Button {
+        MyButton {
             id: newChat
             anchors.left: parent.left
             anchors.right: parent.right
-            padding: 15
             font.pixelSize: theme.fontSizeLarger
+            topPadding: 20
+            bottomPadding: 20
+            text: qsTr("\uFF0B New chat")
+            Accessible.description: qsTr("Use this to create a new chat")
             background: Rectangle {
-                color: theme.backgroundDarkest
-                opacity: .5
-                border.color: theme.backgroundLightest
-                border.width: 1
+                border.color: newChat.down ? theme.backgroundLightest : theme.buttonBorder
+                border.width: 2
                 radius: 10
-            }
-            contentItem: Text {
-                text: qsTr("New chat")
-                horizontalAlignment: Text.AlignHCenter
-                color: theme.textColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: text
-                Accessible.description: qsTr("Use this to launch an external application that will check for updates to the installer")
+                color: newChat.hovered ? theme.backgroundDark : theme.backgroundDarkest
             }
             onClicked: {
                 LLM.chatListModel.addChat();
@@ -148,41 +141,31 @@ Drawer {
                         anchors.right: chatRectangle.right
                         anchors.rightMargin: 10
                         spacing: 10
-                        Button {
+                        MyToolButton {
                             id: editButton
                             width: 30
                             height: 30
                             visible: isCurrent && !isServer
                             opacity: trashQuestionDisplayed ? 0.5 : 1.0
-                            background: Image {
-                                width: 30
-                                height: 30
-                                source: "qrc:/gpt4all/icons/edit.svg"
-                            }
+                            source: "qrc:/gpt4all/icons/edit.svg"
                             onClicked: {
                                 chatName.focus = true
                                 chatName.readOnly = false
                                 chatName.selectByMouse = true
                             }
-                            Accessible.role: Accessible.Button
                             Accessible.name: qsTr("Edit the chat name")
                             Accessible.description: qsTr("Provides a button to edit the chat name")
                         }
-                        Button {
+                        MyToolButton {
                             id: trashButton
                             width: 30
                             height: 30
                             visible: isCurrent && !isServer
-                            background: Image {
-                                width: 30
-                                height: 30
-                                source: "qrc:/gpt4all/icons/trash.svg"
-                            }
+                            source: "qrc:/gpt4all/icons/trash.svg"
                             onClicked: {
                                 trashQuestionDisplayed = true
                                 timer.start()
                             }
-                            Accessible.role: Accessible.Button
                             Accessible.name: qsTr("Delete of the chat")
                             Accessible.description: qsTr("Provides a button to delete the chat")
                         }
@@ -263,91 +246,40 @@ Drawer {
             }
         }
 
-        Button {
+        MyButton {
             id: checkForUpdatesButton
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: downloadButton.top
             anchors.bottomMargin: 10
-            padding: 15
-            contentItem: Text {
-                text: qsTr("Updates")
-                horizontalAlignment: Text.AlignHCenter
-                color: theme.textColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: text
-                Accessible.description: qsTr("Use this to launch an external application that will check for updates to the installer")
-            }
-
-            background: Rectangle {
-                opacity: .5
-                border.color: theme.backgroundLightest
-                border.width: 1
-                radius: 10
-                color: theme.backgroundLight
-            }
-
+            text: qsTr("Updates")
+            Accessible.description: qsTr("Use this to launch an external application that will check for updates to the installer")
             onClicked: {
                 if (!LLM.checkForUpdates())
                     checkForUpdatesError.open()
             }
         }
 
-        Button {
+        MyButton {
             id: downloadButton
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: aboutButton.top
             anchors.bottomMargin: 10
-            padding: 15
-            contentItem: Text {
-                text: qsTr("Downloads")
-                horizontalAlignment: Text.AlignHCenter
-                color: theme.textColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: text
-                Accessible.description: qsTr("Use this to launch a dialog to download new models")
-            }
-
-            background: Rectangle {
-                opacity: .5
-                border.color: theme.backgroundLightest
-                border.width: 1
-                radius: 10
-                color: theme.backgroundLight
-            }
-
+            text: qsTr("Downloads")
+            Accessible.description: qsTr("Use this to launch a dialog to download new models")
             onClicked: {
                 downloadClicked()
             }
         }
 
-        Button {
+        MyButton {
             id: aboutButton
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            padding: 15
-            contentItem: Text {
-                text: qsTr("About")
-                horizontalAlignment: Text.AlignHCenter
-                color: theme.textColor
-
-                Accessible.role: Accessible.Button
-                Accessible.name: text
-                Accessible.description: qsTr("Use this to launch a dialog to show the about page")
-            }
-
-            background: Rectangle {
-                opacity: .5
-                border.color: theme.backgroundLightest
-                border.width: 1
-                radius: 10
-                color: theme.backgroundLight
-            }
-
+            text: qsTr("About")
+            Accessible.description: qsTr("Use this to launch a dialog to show the about page")
             onClicked: {
                 aboutClicked()
             }

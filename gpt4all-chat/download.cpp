@@ -74,7 +74,7 @@ QList<ModelInfo> Download::modelList() const
     ModelInfo bestLlamaInfo;
     ModelInfo bestMPTInfo;
     QList<ModelInfo> filtered;
-    for (ModelInfo v : values) {
+    for (const ModelInfo &v : values) {
         if (v.isDefault)
             defaultInfo = v;
         if (v.bestGPTJ)
@@ -228,8 +228,11 @@ void Download::downloadModel(const QString &modelFile)
         tempFile->seek(incomplete_size);
     }
 
+    ModelInfo info = m_modelMap.value(modelFile);
+    QString url = !info.url.isEmpty() ? info.url : "http://gpt4all.io/models/" + modelFile;
     Network::globalInstance()->sendDownloadStarted(modelFile);
-    QNetworkRequest request("http://gpt4all.io/models/" + modelFile);
+    QNetworkRequest request(url);
+    request.setAttribute(QNetworkRequest::User, modelFile);
     request.setRawHeader("range", QString("bytes=%1-").arg(incomplete_size).toUtf8());
     QSslConfiguration conf = request.sslConfiguration();
     conf.setPeerVerifyMode(QSslSocket::VerifyNone);
@@ -267,10 +270,50 @@ void Download::cancelDownload(const QString &modelFile)
     }
 }
 
+void Download::installModel(const QString &modelFile, const QString &apiKey)
+{
+    Q_ASSERT(!apiKey.isEmpty());
+    if (apiKey.isEmpty())
+        return;
+
+    Network::globalInstance()->sendInstallModel(modelFile);
+    QString filePath = downloadLocalModelsPath() + modelFile + ".txt";
+    QFile file(filePath);
+    if (file.open(QIODeviceBase::WriteOnly | QIODeviceBase::Text)) {
+        QTextStream stream(&file);
+        stream << apiKey;
+        file.close();
+        ModelInfo info = m_modelMap.value(modelFile);
+        info.installed = true;
+        m_modelMap.insert(modelFile, info);
+        emit modelListChanged();
+    }
+}
+
+void Download::removeModel(const QString &modelFile)
+{
+    const bool isChatGPT = modelFile.startsWith("chatgpt-");
+    const QString filePath = downloadLocalModelsPath()
+        + modelFile
+        + (isChatGPT ? ".txt" : QString());
+    QFile file(filePath);
+    if (!file.exists()) {
+        qWarning() << "ERROR: Cannot remove file that does not exist" << filePath;
+        return;
+    }
+
+    Network::globalInstance()->sendRemoveModel(modelFile);
+    ModelInfo info = m_modelMap.value(modelFile);
+    info.installed = false;
+    m_modelMap.insert(modelFile, info);
+    file.remove();
+    emit modelListChanged();
+}
+
 void Download::handleSslErrors(QNetworkReply *reply, const QList<QSslError> &errors)
 {
     QUrl url = reply->request().url();
-    for (auto e : errors)
+    for (const auto &e : errors)
         qWarning() << "ERROR: Received ssl error:" << e.errorString() << "for" << url;
 }
 
@@ -329,7 +372,9 @@ void Download::parseModelsJsonFile(const QByteArray &jsonData)
 
         QString modelFilename = obj["filename"].toString();
         QString modelFilesize = obj["filesize"].toString();
-        QString requires = obj["requires"].toString();
+        QString requiresVersion = obj["requires"].toString();
+        QString deprecatedVersion = obj["deprecated"].toString();
+        QString url = obj["url"].toString();
         QByteArray modelMd5sum = obj["md5sum"].toString().toLatin1().constData();
         bool isDefault = obj.contains("isDefault") && obj["isDefault"] == QString("true");
         bool bestGPTJ = obj.contains("bestGPTJ") && obj["bestGPTJ"] == QString("true");
@@ -337,9 +382,16 @@ void Download::parseModelsJsonFile(const QByteArray &jsonData)
         bool bestMPT = obj.contains("bestMPT") && obj["bestMPT"] == QString("true");
         QString description = obj["description"].toString();
 
-        if (!requires.isEmpty()
-            && requires != currentVersion
-            && compareVersions(requires, currentVersion)) {
+        // If the currentVersion version is strictly less than required version, then continue
+        if (!requiresVersion.isEmpty()
+            && requiresVersion != currentVersion
+            && compareVersions(requiresVersion, currentVersion)) {
+            continue;
+        }
+
+        // If the current version is strictly greater than the deprecated version, then continue
+        if (!deprecatedVersion.isEmpty()
+            && compareVersions(currentVersion, deprecatedVersion)) {
             continue;
         }
 
@@ -368,15 +420,46 @@ void Download::parseModelsJsonFile(const QByteArray &jsonData)
         modelInfo.bestLlama = bestLlama;
         modelInfo.bestMPT = bestMPT;
         modelInfo.description = description;
-        modelInfo.requires = requires;
+        modelInfo.requiresVersion = requiresVersion;
+        modelInfo.deprecatedVersion = deprecatedVersion;
+        modelInfo.url = url;
+        m_modelMap.insert(modelInfo.filename, modelInfo);
+    }
+
+    const QString chatGPTDesc = tr("WARNING: requires personal OpenAI API key and usage of this "
+        "model will send your chats over the network to OpenAI. Your API key will be stored on disk "
+        "and only used to interact with OpenAI models. If you don't have one, you can apply for "
+        "an API key <a href=\"https://platform.openai.com/account/api-keys\">here.</a>");
+
+    {
+        ModelInfo modelInfo;
+        modelInfo.isChatGPT = true;
+        modelInfo.filename = "chatgpt-gpt-3.5-turbo";
+        modelInfo.description = tr("OpenAI's ChatGPT model gpt-3.5-turbo. ") + chatGPTDesc;
+        modelInfo.requiresVersion = "2.4.2";
+        QString filePath = downloadLocalModelsPath() + modelInfo.filename + ".txt";
+        QFileInfo info(filePath);
+        modelInfo.installed = info.exists();
+        m_modelMap.insert(modelInfo.filename, modelInfo);
+    }
+
+    {
+        ModelInfo modelInfo;
+        modelInfo.isChatGPT = true;
+        modelInfo.filename = "chatgpt-gpt-4";
+        modelInfo.description = tr("OpenAI's ChatGPT model gpt-4. ") + chatGPTDesc;
+        modelInfo.requiresVersion = "2.4.2";
+        QString filePath = downloadLocalModelsPath() + modelInfo.filename + ".txt";
+        QFileInfo info(filePath);
+        modelInfo.installed = info.exists();
         m_modelMap.insert(modelInfo.filename, modelInfo);
     }
 
     // remove ggml- prefix and .bin suffix
-    Q_ASSERT(defaultModel.startsWith("ggml-"));
-    defaultModel = defaultModel.remove(0, 5);
-    Q_ASSERT(defaultModel.endsWith(".bin"));
-    defaultModel.chop(4);
+    if (defaultModel.startsWith("ggml-"))
+        defaultModel = defaultModel.remove(0, 5);
+    if (defaultModel.endsWith(".bin"))
+        defaultModel.chop(4);
 
     QSettings settings;
     settings.sync();
@@ -431,7 +514,7 @@ void Download::handleErrorOccurred(QNetworkReply::NetworkError code)
     if (!modelReply)
         return;
 
-    QString modelFilename = modelReply->url().fileName();
+    QString modelFilename = modelReply->request().attribute(QNetworkRequest::User).toString();
     qWarning() << "ERROR: Network error occurred attempting to download"
                << modelFilename
                << "code:" << code
@@ -454,7 +537,7 @@ void Download::handleDownloadProgress(qint64 bytesReceived, qint64 bytesTotal)
         bytesTotal = contentTotalSize.toLongLong();
     }
 
-    QString modelFilename = modelReply->url().fileName();
+    QString modelFilename = modelReply->request().attribute(QNetworkRequest::User).toString();
     emit downloadProgress(tempFile->pos(), bytesTotal, modelFilename);
 }
 
@@ -470,7 +553,7 @@ void HashAndSaveFile::hashAndSave(const QString &expectedHash, const QString &sa
         QFile *tempFile, QNetworkReply *modelReply)
 {
     Q_ASSERT(!tempFile->isOpen());
-    QString modelFilename = modelReply->url().fileName();
+    QString modelFilename = modelReply->request().attribute(QNetworkRequest::User).toString();
 
     // Reopen the tempFile for hashing
     if (!tempFile->open(QIODevice::ReadOnly)) {
@@ -539,7 +622,7 @@ void Download::handleModelDownloadFinished()
     if (!modelReply)
         return;
 
-    QString modelFilename = modelReply->url().fileName();
+    QString modelFilename = modelReply->request().attribute(QNetworkRequest::User).toString();
     QFile *tempFile = m_activeDownloads.value(modelReply);
     m_activeDownloads.remove(modelReply);
 
@@ -569,7 +652,7 @@ void Download::handleHashAndSaveFinished(bool success,
 {
     // The hash and save should send back with tempfile closed
     Q_ASSERT(!tempFile->isOpen());
-    QString modelFilename = modelReply->url().fileName();
+    QString modelFilename = modelReply->request().attribute(QNetworkRequest::User).toString();
     Network::globalInstance()->sendDownloadFinished(modelFilename, success);
 
     ModelInfo info = m_modelMap.value(modelFilename);
@@ -589,7 +672,6 @@ void Download::handleReadyRead()
     if (!modelReply)
         return;
 
-    QString modelFilename = modelReply->url().fileName();
     QFile *tempFile = m_activeDownloads.value(modelReply);
     QByteArray buffer;
     while (!modelReply->atEnd()) {

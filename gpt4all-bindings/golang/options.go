@@ -20,23 +20,14 @@ var DefaultOptions PredictOptions = PredictOptions{
 }
 
 var DefaultModelOptions ModelOptions = ModelOptions{
-	Threads:   4,
-	ModelType: GPTJType,
+	Threads: 4,
 }
 
 type ModelOptions struct {
-	Threads   int
-	ModelType ModelType
+	Threads           int
+	LibrarySearchPath string
 }
 type ModelOption func(p *ModelOptions)
-
-type ModelType int
-
-const (
-	LLaMAType ModelType = 0
-	GPTJType  ModelType = iota
-	MPTType   ModelType = iota
-)
 
 // SetTokens sets the number of tokens to generate.
 func SetTokens(tokens int) PredictOption {
@@ -110,10 +101,10 @@ func SetThreads(c int) ModelOption {
 	}
 }
 
-// SetModelType sets the model type.
-func SetModelType(c ModelType) ModelOption {
+// SetLibrarySearchPath sets the dynamic libraries used by gpt4all for the various ggml implementations.
+func SetLibrarySearchPath(t string) ModelOption {
 	return func(p *ModelOptions) {
-		p.ModelType = c
+		p.LibrarySearchPath = t
 	}
 }
 

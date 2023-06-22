@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 if(APPLE)
   option(BUILD_UNIVERSAL "Build a Universal binary on macOS" OFF)
   if(BUILD_UNIVERSAL)
@@ -14,7 +17,7 @@ endif()
 
 set(APP_VERSION_MAJOR 2)
 set(APP_VERSION_MINOR 4)
-set(APP_VERSION_PATCH 2)
+set(APP_VERSION_PATCH 9)
 set(APP_VERSION "${APP_VERSION_MAJOR}.${APP_VERSION_MINOR}.${APP_VERSION_PATCH}")
 
 # Include the binary directory for the generated header file
@@ -27,7 +30,6 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(GPT4ALL_LOCALHOST OFF "Build installer for localhost repo")
-option(GPT4ALL_AVX_ONLY OFF "Build for avx only")
 option(GPT4ALL_OFFLINE_INSTALLER "Build an offline installer" OFF)
 
 # Generate a header file with the version number
@@ -36,7 +38,7 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/config.h"
 )
 
-find_package(Qt6 6.5 COMPONENTS Core Quick QuickDialogs2 Svg HttpServer REQUIRED)
+find_package(Qt6 6.5 COMPONENTS Core Quick QuickDialogs2 Svg HttpServer Sql Pdf REQUIRED)
 
 # Get the Qt6Core target properties
 get_target_property(Qt6Core_INCLUDE_DIRS Qt6::Core INTERFACE_INCLUDE_DIRECTORIES)
@@ -52,20 +54,31 @@ get_filename_component(Qt6_ROOT_DIR "${Qt6_ROOT_DIR}/.." ABSOLUTE)
 message(STATUS "qmake binary: ${QMAKE_EXECUTABLE}")
 message(STATUS "Qt 6 root directory: ${Qt6_ROOT_DIR}")
 
+set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 add_subdirectory(../gpt4all-backend llmodel)
 
-set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(METAL_SHADER_FILE)
+if(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
+  set(METAL_SHADER_FILE ../gpt4all-backend/llama.cpp-mainline/ggml-metal.metal)
+endif()
 
 qt_add_executable(chat
     main.cpp
     chat.h chat.cpp
     chatllm.h chatllm.cpp
     chatmodel.h chatlistmodel.h chatlistmodel.cpp
+    chatgpt.h chatgpt.cpp
+    database.h database.cpp
     download.h download.cpp
     network.h network.cpp
+    localdocs.h localdocs.cpp localdocsmodel.h localdocsmodel.cpp
     llm.h llm.cpp
     server.h server.cpp
+    logger.h logger.cpp
+    responsetext.h responsetext.cpp
     sysinfo.h
+    ${METAL_SHADER_FILE}
 )
 
 qt_add_qml_module(chat
@@ -74,6 +87,8 @@ qt_add_qml_module(chat
     QML_FILES
       main.qml
       qml/ChatDrawer.qml
+      qml/CollectionsDialog.qml
+      qml/LocalDocs.qml
       qml/ModelDownloaderDialog.qml
       qml/NetworkDialog.qml
       qml/NewVersionDialog.qml
@@ -83,11 +98,19 @@ qt_add_qml_module(chat
       qml/PopupDialog.qml
       qml/AboutDialog.qml
       qml/Theme.qml
+      qml/MyButton.qml
+      qml/MyComboBox.qml
+      qml/MyDirectoryField.qml
+      qml/MyTextField.qml
+      qml/MyCheckBox.qml
+      qml/MyBusyIndicator.qml
+      qml/MyToolButton.qml
     RESOURCES
       icons/send_message.svg
       icons/stop_generating.svg
       icons/regenerate.svg
       icons/copy.svg
+      icons/db.svg
       icons/settings.svg
       icons/edit.svg
       icons/trash.svg
@@ -116,24 +139,52 @@ if(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
     )
 endif()
 
+if(METAL_SHADER_FILE)
+    set_target_properties(chat PROPERTIES
+        RESOURCE ${METAL_SHADER_FILE}
+    )
+    configure_file(${METAL_SHADER_FILE} bin/ggml-metal.metal COPYONLY)
+endif()
+
 target_compile_definitions(chat
     PRIVATE $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:QT_QML_DEBUG>)
 target_link_libraries(chat
-    PRIVATE Qt6::Quick Qt6::Svg Qt6::HttpServer)
+    PRIVATE Qt6::Quick Qt6::Svg Qt6::HttpServer Qt6::Sql Qt6::Pdf)
 target_link_libraries(chat
     PRIVATE llmodel)
 
 set(COMPONENT_NAME_MAIN ${PROJECT_NAME})
 set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/install)
 
-if(NOT (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "arm64"))
-    add_executable(test_hw test_hw.cpp)
-    install(TARGETS test_hw DESTINATION bin COMPONENT ${COMPONENT_NAME_MAIN})
-endif()
-
 install(TARGETS chat DESTINATION bin COMPONENT ${COMPONENT_NAME_MAIN})
 install(TARGETS llmodel DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
-install(TARGETS llama DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+
+# We should probably iterate through the list of the cmake for backend, but these need to be installed
+# to the this component's dir for the finicky qt installer to work
+install(TARGETS gptj-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS gptj-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llama-230511-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llama-230511-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llama-230519-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llama-230519-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llama-mainline-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llama-mainline-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llamamodel-230511-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llamamodel-230511-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llamamodel-230519-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llamamodel-230519-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llamamodel-mainline-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS llamamodel-mainline-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+if(APPLE)
+install(TARGETS llamamodel-mainline-metal DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+endif()
+install(TARGETS mpt-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS mpt-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS replit-mainline-avxonly DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+install(TARGETS replit-mainline-default DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+if(APPLE)
+install(TARGETS replit-mainline-metal DESTINATION lib COMPONENT ${COMPONENT_NAME_MAIN})
+endif()
 
 set(CPACK_GENERATOR "IFW")
 set(CPACK_VERBATIM_VARIABLES YES)
@@ -204,23 +255,11 @@ elseif(GPT4ALL_OFFLINE_INSTALLER)
     cpack_ifw_add_repository("GPT4AllRepository" URL "file://${CMAKE_BINARY_DIR}/packages")
 else()
   if(${CMAKE_SYSTEM_NAME} MATCHES Linux)
-    if (GPT4ALL_AVX_ONLY)
-      cpack_ifw_add_repository("GPT4AllRepository" URL "https://gpt4all.io/installer_repos/avx_only/linux/repository")
-    else()
       cpack_ifw_add_repository("GPT4AllRepository" URL "https://gpt4all.io/installer_repos/linux/repository")
-    endif()
   elseif(${CMAKE_SYSTEM_NAME} MATCHES Windows)
-    #To sign the target on windows have to create a batch script add use it as a custom target and then use CPACK_IFW_EXTRA_TARGETS to set this extra target
-    if (GPT4ALL_AVX_ONLY)
-      cpack_ifw_add_repository("GPT4AllRepository" URL "https://gpt4all.io/installer_repos/avx_only/windows/repository")
-    else()
+      #To sign the target on windows have to create a batch script add use it as a custom target and then use CPACK_IFW_EXTRA_TARGETS to set this extra target
       cpack_ifw_add_repository("GPT4AllRepository" URL "https://gpt4all.io/installer_repos/windows/repository")
-    endif()
   elseif(${CMAKE_SYSTEM_NAME} MATCHES Darwin)
-    if (GPT4ALL_AVX_ONLY)
-      cpack_ifw_add_repository("GPT4AllRepository" URL "https://gpt4all.io/installer_repos/avx_only/mac/repository")
-    else()
       cpack_ifw_add_repository("GPT4AllRepository" URL "https://gpt4all.io/installer_repos/mac/repository")
-    endif()
   endif()
 endif()

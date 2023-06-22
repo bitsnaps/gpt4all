@@ -4,6 +4,7 @@ import QtQuick.Controls
 import QtQuick.Controls.Basic
 import QtQuick.Dialogs
 import QtQuick.Layouts
+import Qt.labs.folderlistmodel
 import download
 import network
 import llm
@@ -12,9 +13,10 @@ Dialog {
     id: settingsDialog
     modal: true
     opacity: 0.9
+    padding: 20
+    bottomPadding: 30
     background: Rectangle {
         anchors.fill: parent
-        anchors.margins: -20
         color: theme.backgroundDarkest
         border.width: 1
         border.color: theme.dialogBorder
@@ -31,15 +33,16 @@ Dialog {
         id: theme
     }
 
-    property real defaultTemperature: 0.28
-    property real defaultTopP: 0.95
+    property real defaultTemperature: 0.7
+    property real defaultTopP: 0.1
     property int defaultTopK: 40
     property int defaultMaxLength: 4096
-    property int defaultPromptBatchSize: 9
-    property real defaultRepeatPenalty: 1.10
+    property int defaultPromptBatchSize: 128
+    property real defaultRepeatPenalty: 1.18
     property int defaultRepeatPenaltyTokens: 64
     property int defaultThreadCount: 0
     property bool defaultSaveChats: false
+    property bool defaultSaveChatGPTChats: true
     property bool defaultServerChat: false
     property string defaultPromptTemplate: "### Human:
 %1
@@ -57,6 +60,7 @@ Dialog {
     property alias repeatPenaltyTokens: settings.repeatPenaltyTokens
     property alias threadCount: settings.threadCount
     property alias saveChats: settings.saveChats
+    property alias saveChatGPTChats: settings.saveChatGPTChats
     property alias serverChat: settings.serverChat
     property alias modelPath: settings.modelPath
     property alias userDefaultModel: settings.userDefaultModel
@@ -70,6 +74,7 @@ Dialog {
         property int promptBatchSize: settingsDialog.defaultPromptBatchSize
         property int threadCount: settingsDialog.defaultThreadCount
         property bool saveChats: settingsDialog.defaultSaveChats
+        property bool saveChatGPTChats: settingsDialog.defaultSaveChatGPTChats
         property bool serverChat: settingsDialog.defaultServerChat
         property real repeatPenalty: settingsDialog.defaultRepeatPenalty
         property int repeatPenaltyTokens: settingsDialog.defaultRepeatPenaltyTokens
@@ -94,12 +99,14 @@ Dialog {
         settings.modelPath = settingsDialog.defaultModelPath
         settings.threadCount = defaultThreadCount
         settings.saveChats = defaultSaveChats
+        settings.saveChatGPTChats = defaultSaveChatGPTChats
         settings.serverChat = defaultServerChat
         settings.userDefaultModel = defaultUserDefaultModel
         Download.downloadLocalModelsPath = settings.modelPath
         LLM.threadCount = settings.threadCount
         LLM.serverEnabled = settings.serverChat
         LLM.chatListModel.shouldSaveChats = settings.saveChats
+        LLM.chatListModel.shouldSaveChatGPTChats = settings.saveChatGPTChats
         settings.sync()
     }
 
@@ -107,6 +114,7 @@ Dialog {
         LLM.threadCount = settings.threadCount
         LLM.serverEnabled = settings.serverChat
         LLM.chatListModel.shouldSaveChats = settings.saveChats
+        LLM.chatListModel.shouldSaveChatGPTChats = settings.saveChatGPTChats
         Download.downloadLocalModelsPath = settings.modelPath
     }
 
@@ -124,20 +132,46 @@ Dialog {
     }
     TabBar {
         id: settingsTabBar
-        width: parent.width / 1.5
+        width: parent.width / 1.25
+        z: 200
 
         TabButton {
             id: genSettingsButton
             contentItem: IconLabel {
                 color: theme.textColor
                 font.bold: genSettingsButton.checked
-                font.pixelSize: genSettingsButton.checked ? theme.fontSizeLarger : theme.fontSizeLarge
                 text: qsTr("Generation")
             }
             background: Rectangle {
                 color: genSettingsButton.checked ? theme.backgroundDarkest : theme.backgroundLight
-                border.color: theme.tabBorder
-                border.width: 1 ? genSettingsButton.checked : 0
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: genSettingsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: !genSettingsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    width: genSettingsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    width: genSettingsButton.checked
+                    color: theme.tabBorder
+                }
             }
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("Generation settings")
@@ -149,22 +183,91 @@ Dialog {
             contentItem: IconLabel {
                 color: theme.textColor
                 font.bold: appSettingsButton.checked
-                font.pixelSize: appSettingsButton.checked ? theme.fontSizeLarger : theme.fontSizeLarge
                 text: qsTr("Application")
             }
             background: Rectangle {
                 color: appSettingsButton.checked ? theme.backgroundDarkest : theme.backgroundLight
-                border.color: theme.tabBorder
-                border.width: 1 ? appSettingsButton.checked : 0
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: appSettingsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: !appSettingsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    width: appSettingsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    width: appSettingsButton.checked
+                    color: theme.tabBorder
+                }
             }
             Accessible.role: Accessible.Button
             Accessible.name: qsTr("Application settings")
             Accessible.description: qsTr("Settings related to general behavior of the application")
         }
+
+        TabButton {
+            id: localDocsButton
+            contentItem: IconLabel {
+                color: theme.textColor
+                font.bold: localDocsButton.checked
+                text: qsTr("LocalDocs Plugin (BETA)")
+            }
+            background: Rectangle {
+                color: localDocsButton.checked ? theme.backgroundDarkest : theme.backgroundLight
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: localDocsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: !localDocsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    width: localDocsButton.checked
+                    color: theme.tabBorder
+                }
+                Rectangle {
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    width: localDocsButton.checked
+                    color: theme.tabBorder
+                }
+            }
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("LocalDocs settings")
+            Accessible.description: qsTr("Settings related to localdocs plugin")
+        }
     }
 
     StackLayout {
         anchors.top: settingsTabBar.bottom
+        anchors.topMargin: -1
         width: parent.width
         height: availableHeight
         currentIndex: settingsTabBar.currentIndex
@@ -200,16 +303,10 @@ Dialog {
                         Layout.row: 0
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settings.temperature.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
-                        ToolTip.text: qsTr("Temperature increases the chances of choosing less likely tokens - higher temperature gives more creative but less predictable outputs")
+                        ToolTip.text: qsTr("Temperature increases the chances of choosing less likely tokens.\nNOTE: Higher temperature gives more creative but less predictable outputs.")
                         ToolTip.visible: hovered
                         Layout.row: 0
                         Layout.column: 1
@@ -237,16 +334,10 @@ Dialog {
                         Layout.row: 1
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settings.topP.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
-                        ToolTip.text: qsTr("Only the most likely tokens up to a total probability of top_p can be chosen, prevents choosing highly unlikely tokens, aka Nucleus Sampling")
+                        ToolTip.text: qsTr("Only the most likely tokens up to a total probability of top_p can be chosen.\nNOTE: Prevents choosing highly unlikely tokens, aka Nucleus Sampling")
                         ToolTip.visible: hovered
                         Layout.row: 1
                         Layout.column: 1
@@ -274,15 +365,9 @@ Dialog {
                         Layout.row: 2
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settings.topK.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
                         ToolTip.text: qsTr("Only the top K most likely tokens will be chosen from")
                         ToolTip.visible: hovered
                         Layout.row: 2
@@ -311,15 +396,9 @@ Dialog {
                         Layout.row: 3
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settings.maxLength.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
                         ToolTip.text: qsTr("Maximum length of response in tokens")
                         ToolTip.visible: hovered
                         Layout.row: 3
@@ -349,16 +428,10 @@ Dialog {
                         Layout.row: 4
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settings.promptBatchSize.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
-                        ToolTip.text: qsTr("Amount of prompt tokens to process at once, higher values can speed up reading prompts but will use more RAM")
+                        ToolTip.text: qsTr("Amount of prompt tokens to process at once.\nNOTE: Higher values can speed up reading prompts but will use more RAM")
                         ToolTip.visible: hovered
                         Layout.row: 4
                         Layout.column: 1
@@ -386,15 +459,9 @@ Dialog {
                         Layout.row: 5
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settings.repeatPenalty.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
                         ToolTip.text: qsTr("Amount to penalize repetitiveness of the output")
                         ToolTip.visible: hovered
                         Layout.row: 5
@@ -423,15 +490,9 @@ Dialog {
                         Layout.row: 6
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settings.repeatPenaltyTokens.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
                         ToolTip.text: qsTr("How far back in output to apply repeat penalty")
                         ToolTip.visible: hovered
                         Layout.row: 6
@@ -503,30 +564,17 @@ Dialog {
                                 Accessible.role: Accessible.EditableText
                                 Accessible.name: promptTemplateLabel.text
                                 Accessible.description: promptTemplateLabelHelp.text
+                                ToolTip.text: qsTr("The prompt template partially determines how models will respond to prompts.\nNOTE: A longer, detailed template can lead to higher quality answers, but can also slow down generation.")
+                                ToolTip.visible: hovered
                             }
                         }
                     }
-                    Button {
+                    MyButton {
                         Layout.row: 8
                         Layout.column: 1
                         Layout.fillWidth: true
-                        padding: 10
-                        contentItem: Text {
-                            text: qsTr("Restore Defaults")
-                            horizontalAlignment: Text.AlignHCenter
-                            color: theme.textColor
-                            Accessible.role: Accessible.Button
-                            Accessible.name: text
-                            Accessible.description: qsTr("Restores the settings dialog to a default state")
-                        }
-
-                        background: Rectangle {
-                            opacity: .5
-                            border.color: theme.backgroundLightest
-                            border.width: 1
-                            radius: 10
-                            color: theme.backgroundLight
-                        }
+                        text: qsTr("Restore Defaults")
+                        Accessible.description: qsTr("Restores the settings dialog to a default state")
                         onClicked: {
                             settingsDialog.restoreGenerationDefaults()
                         }
@@ -562,14 +610,11 @@ Dialog {
                         Layout.row: 1
                         Layout.column: 0
                     }
-                    ComboBox {
+                    MyComboBox {
                         id: comboBox
                         Layout.row: 1
                         Layout.column: 1
                         Layout.minimumWidth: 350
-                        font.pixelSize: theme.fontSizeLarge
-                        spacing: 0
-                        padding: 10
                         model: modelList
                         Accessible.role: Accessible.ComboBox
                         Accessible.name: qsTr("ComboBox for displaying/picking the default model")
@@ -597,57 +642,6 @@ Dialog {
                                 comboBox.updateModel(currentChat.modelList)
                             }
                         }
-                        contentItem: Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            leftPadding: 10
-                            rightPadding: 10
-                            text: comboBox.displayText
-                            font: comboBox.font
-                            color: theme.textColor
-                            verticalAlignment: Text.AlignVCenter
-                            horizontalAlignment: Text.AlignHCenter
-                            elide: Text.ElideRight
-                        }
-                        delegate: ItemDelegate {
-                            width: comboBox.width
-                            contentItem: Text {
-                                text: modelData
-                                color: theme.textColor
-                                font: comboBox.font
-                                elide: Text.ElideRight
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? theme.backgroundLight : theme.backgroundDark
-                            }
-                            highlighted: comboBox.highlightedIndex === index
-                        }
-                        popup: Popup {
-                            y: comboBox.height - 1
-                            width: comboBox.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 0
-
-                            contentItem: ListView {
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: comboBox.popup.visible ? comboBox.delegateModel : null
-                                currentIndex: comboBox.highlightedIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                            }
-
-                            background: Rectangle {
-                                color: theme.backgroundDark
-                            }
-                        }
-
-                        background: Rectangle {
-                            color: theme.backgroundDark
-                            border.width: 1
-                            border.color: theme.backgroundLightest
-                            radius: 10
-                        }
-
                         onActivated: {
                             settingsDialog.userDefaultModel = comboBox.currentText
                             settings.sync()
@@ -656,9 +650,10 @@ Dialog {
                     FolderDialog {
                         id: modelPathDialog
                         title: "Please choose a directory"
-                        currentFolder: Download.downloadLocalModelsPath
+                        currentFolder: "file://" + Download.downloadLocalModelsPath
                         onAccepted: {
-                            Download.downloadLocalModelsPath = selectedFolder
+                            modelPathDisplayField.text = selectedFolder
+                            Download.downloadLocalModelsPath = modelPathDisplayField.text
                             settings.modelPath = Download.downloadLocalModelsPath
                             settings.sync()
                         }
@@ -670,45 +665,33 @@ Dialog {
                         Layout.row: 2
                         Layout.column: 0
                     }
-                    TextField {
-                        id: modelPathDisplayLabel
+                    MyDirectoryField {
+                        id: modelPathDisplayField
                         text: Download.downloadLocalModelsPath
-                        readOnly: true
-                        color: theme.textColor
                         implicitWidth: 300
-                        padding: 10
                         Layout.row: 2
                         Layout.column: 1
                         Layout.fillWidth: true
                         ToolTip.text: qsTr("Path where model files will be downloaded to")
                         ToolTip.visible: hovered
                         Accessible.role: Accessible.ToolTip
-                        Accessible.name: modelPathDisplayLabel.text
+                        Accessible.name: modelPathDisplayField.text
                         Accessible.description: ToolTip.text
-                        background: Rectangle {
-                            color: theme.backgroundLighter
-                            radius: 10
+                        onEditingFinished: {
+                            if (isValid) {
+                                Download.downloadLocalModelsPath = modelPathDisplayField.text
+                                settings.modelPath = Download.downloadLocalModelsPath
+                                settings.sync()
+                            } else {
+                                text = Download.downloadLocalModelsPath
+                            }
                         }
                     }
-                    Button {
+                    MyButton {
                         Layout.row: 2
                         Layout.column: 2
                         text: qsTr("Browse")
-                        contentItem: Text {
-                            text: qsTr("Browse")
-                            horizontalAlignment: Text.AlignHCenter
-                            color: theme.textColor
-                            Accessible.role: Accessible.Button
-                            Accessible.name: text
-                            Accessible.description: qsTr("Opens a folder picker dialog to choose where to save model files")
-                        }
-                        background: Rectangle {
-                            opacity: .5
-                            border.color: theme.backgroundLightest
-                            border.width: 1
-                            radius: 10
-                            color: theme.backgroundLight
-                        }
+                        Accessible.description: qsTr("Opens a folder picker dialog to choose where to save model files")
                         onClicked: modelPathDialog.open()
                     }
                     Label {
@@ -718,15 +701,9 @@ Dialog {
                         Layout.row: 3
                         Layout.column: 0
                     }
-                    TextField {
+                    MyTextField {
                         text: settingsDialog.threadCount.toString()
                         color: theme.textColor
-                        background: Rectangle {
-                            implicitWidth: 150
-                            color: theme.backgroundLighter
-                            radius: 10
-                        }
-                        padding: 10
                         ToolTip.text: qsTr("Amount of processing threads to use, a setting of 0 will use the lesser of 4 or your number of CPU threads")
                         ToolTip.visible: hovered
                         Layout.row: 3
@@ -756,7 +733,7 @@ Dialog {
                         Layout.row: 4
                         Layout.column: 0
                     }
-                    CheckBox {
+                    MyCheckBox {
                         id: saveChatsBox
                         Layout.row: 4
                         Layout.column: 1
@@ -767,51 +744,37 @@ Dialog {
                             LLM.chatListModel.shouldSaveChats = saveChatsBox.checked
                             settings.sync()
                         }
-
                         ToolTip.text: qsTr("WARNING: Saving chats to disk can be ~2GB per chat")
                         ToolTip.visible: hovered
-
-                        background: Rectangle {
-                            color: "transparent"
-                        }
-
-                        indicator: Rectangle {
-                            implicitWidth: 26
-                            implicitHeight: 26
-                            x: saveChatsBox.leftPadding
-                            y: parent.height / 2 - height / 2
-                            border.color: theme.dialogBorder
-                            color: "transparent"
-
-                            Rectangle {
-                                width: 14
-                                height: 14
-                                x: 6
-                                y: 6
-                                color: theme.textColor
-                                visible: saveChatsBox.checked
-                            }
-                        }
-
-                        contentItem: Text {
-                            text: saveChatsBox.text
-                            font: saveChatsBox.font
-                            opacity: enabled ? 1.0 : 0.3
-                            color: theme.textColor
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: saveChatsBox.indicator.width + saveChatsBox.spacing
+                    }
+                    Label {
+                        id: saveChatGPTChatsLabel
+                        text: qsTr("Save ChatGPT chats to disk:")
+                        color: theme.textColor
+                        Layout.row: 5
+                        Layout.column: 0
+                    }
+                    MyCheckBox {
+                        id: saveChatGPTChatsBox
+                        Layout.row: 5
+                        Layout.column: 1
+                        checked: settingsDialog.saveChatGPTChats
+                        onClicked: {
+                            settingsDialog.saveChatGPTChats = saveChatGPTChatsBox.checked
+                            LLM.chatListModel.shouldSaveChatGPTChats = saveChatGPTChatsBox.checked
+                            settings.sync()
                         }
                     }
                     Label {
                         id: serverChatLabel
                         text: qsTr("Enable web server:")
                         color: theme.textColor
-                        Layout.row: 5
+                        Layout.row: 6
                         Layout.column: 0
                     }
-                    CheckBox {
+                    MyCheckBox {
                         id: serverChatBox
-                        Layout.row: 5
+                        Layout.row: 6
                         Layout.column: 1
                         checked: settings.serverChat
                         onClicked: {
@@ -819,66 +782,40 @@ Dialog {
                             LLM.serverEnabled = serverChatBox.checked
                             settings.sync()
                         }
-
                         ToolTip.text: qsTr("WARNING: This enables the gui to act as a local web server for AI API requests and will increase your RAM usage as well")
                         ToolTip.visible: hovered
-
-                        background: Rectangle {
-                            color: "transparent"
-                        }
-
-                        indicator: Rectangle {
-                            implicitWidth: 26
-                            implicitHeight: 26
-                            x: serverChatBox.leftPadding
-                            y: parent.height / 2 - height / 2
-                            border.color: theme.dialogBorder
-                            color: "transparent"
-
-                            Rectangle {
-                                width: 14
-                                height: 14
-                                x: 6
-                                y: 6
-                                color: theme.textColor
-                                visible: serverChatBox.checked
-                            }
-                        }
-
-                        contentItem: Text {
-                            text: serverChatBox.text
-                            font: serverChatBox.font
-                            opacity: enabled ? 1.0 : 0.3
-                            color: theme.textColor
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: serverChatBox.indicator.width + serverChatBox.spacing
-                        }
                     }
-                    Button {
-                        Layout.row: 6
+                    MyButton {
+                        Layout.row: 7
                         Layout.column: 1
                         Layout.fillWidth: true
-                        padding: 10
-                        contentItem: Text {
-                            text: qsTr("Restore Defaults")
-                            horizontalAlignment: Text.AlignHCenter
-                            color: theme.textColor
-                            Accessible.role: Accessible.Button
-                            Accessible.name: text
-                            Accessible.description: qsTr("Restores the settings dialog to a default state")
-                        }
-
-                        background: Rectangle {
-                            opacity: .5
-                            border.color: theme.backgroundLightest
-                            border.width: 1
-                            radius: 10
-                            color: theme.backgroundLight
-                        }
+                        text: qsTr("Restore Defaults")
+                        Accessible.description: qsTr("Restores the settings dialog to a default state")
                         onClicked: {
                             settingsDialog.restoreApplicationDefaults()
                         }
                     }
+                }
+            }
+        }
+        Item {
+            id: localDocsTab
+            ScrollView {
+                background: Rectangle {
+                    color: 'transparent'
+                    border.color: theme.tabBorder
+                    border.width: 1
+                    radius: 2
+                }
+                padding: 10
+                width: parent.width
+                height: parent.height - 30
+                contentWidth: availableWidth - 20
+                ScrollBar.vertical.policy: ScrollBar.AlwaysOn
+
+                LocalDocs {
+                    anchors.margins: 10
+                    anchors.fill: parent
                 }
             }
         }

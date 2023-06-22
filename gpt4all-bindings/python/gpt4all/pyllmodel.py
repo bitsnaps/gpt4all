@@ -1,13 +1,27 @@
-from io import StringIO
 import pkg_resources
 import ctypes
 import os
 import platform
+import queue
 import re
+import subprocess
 import sys
+import threading
+
+class DualStreamProcessor:
+    def __init__(self, stream=None):
+        self.stream = stream
+        self.output = ""
+
+    def write(self, text):
+        if self.stream is not None:
+            self.stream.write(text)
+            self.stream.flush()
+        self.output += text
 
 # TODO: provide a config file to make this more robust
 LLMODEL_PATH = os.path.join("llmodel_DO_NOT_MODIFY", "build").replace("\\", "\\\\")
+MODEL_LIB_PATH = str(pkg_resources.resource_filename("gpt4all", LLMODEL_PATH)).replace("\\", "\\\\")
 
 def load_llmodel_library():
     system = platform.system()
@@ -25,35 +39,19 @@ def load_llmodel_library():
     c_lib_ext = get_c_shared_lib_extension()
 
     llmodel_file = "libllmodel" + '.' + c_lib_ext
-    llama_file = "libllama" + '.' + c_lib_ext
-    llama_dir = str(pkg_resources.resource_filename('gpt4all', os.path.join(LLMODEL_PATH, llama_file)))
-    llmodel_dir = str(pkg_resources.resource_filename('gpt4all', os.path.join(LLMODEL_PATH, llmodel_file)))
 
-    # For windows
-    llama_dir = llama_dir.replace("\\", "\\\\")
-    llmodel_dir = llmodel_dir.replace("\\", "\\\\")
+    llmodel_dir = str(pkg_resources.resource_filename('gpt4all', \
+        os.path.join(LLMODEL_PATH, llmodel_file))).replace("\\", "\\\\")
 
-    llama_lib = ctypes.CDLL(llama_dir, mode=ctypes.RTLD_GLOBAL)
     llmodel_lib = ctypes.CDLL(llmodel_dir)
 
-    return llmodel_lib, llama_lib
+    return llmodel_lib
 
+llmodel = load_llmodel_library()
 
-llmodel, llama = load_llmodel_library()
-
-# Define C function signatures using ctypes
-llmodel.llmodel_gptj_create.restype = ctypes.c_void_p
-llmodel.llmodel_gptj_destroy.argtypes = [ctypes.c_void_p]
-llmodel.llmodel_llama_create.restype = ctypes.c_void_p
-llmodel.llmodel_llama_destroy.argtypes = [ctypes.c_void_p]
-llmodel.llmodel_mpt_create.restype = ctypes.c_void_p
-llmodel.llmodel_mpt_destroy.argtypes = [ctypes.c_void_p]
-
-
-llmodel.llmodel_loadModel.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-llmodel.llmodel_loadModel.restype = ctypes.c_bool
-llmodel.llmodel_isModelLoaded.argtypes = [ctypes.c_void_p]
-llmodel.llmodel_isModelLoaded.restype = ctypes.c_bool
+class LLModelError(ctypes.Structure):
+    _fields_ = [("message", ctypes.c_char_p),
+                ("code", ctypes.c_int32)]
 
 class LLModelPromptContext(ctypes.Structure):
     _fields_ = [("logits", ctypes.POINTER(ctypes.c_float)),
@@ -70,16 +68,46 @@ class LLModelPromptContext(ctypes.Structure):
                 ("repeat_penalty", ctypes.c_float),
                 ("repeat_last_n", ctypes.c_int32),
                 ("context_erase", ctypes.c_float)]
-    
+
+# Define C function signatures using ctypes
+llmodel.llmodel_model_create.argtypes = [ctypes.c_char_p]
+llmodel.llmodel_model_create.restype = ctypes.c_void_p
+
+llmodel.llmodel_model_create2.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(LLModelError)]
+llmodel.llmodel_model_create2.restype = ctypes.c_void_p
+
+llmodel.llmodel_model_destroy.argtypes = [ctypes.c_void_p]
+llmodel.llmodel_model_destroy.restype = None
+
+llmodel.llmodel_loadModel.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+llmodel.llmodel_loadModel.restype = ctypes.c_bool
+llmodel.llmodel_isModelLoaded.argtypes = [ctypes.c_void_p]
+llmodel.llmodel_isModelLoaded.restype = ctypes.c_bool
+
+PromptCallback = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_int32)
 ResponseCallback = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_int32, ctypes.c_char_p)
 RecalculateCallback = ctypes.CFUNCTYPE(ctypes.c_bool, ctypes.c_bool)
 
 llmodel.llmodel_prompt.argtypes = [ctypes.c_void_p, 
                                    ctypes.c_char_p, 
-                                   ResponseCallback, 
+                                   PromptCallback,
                                    ResponseCallback, 
                                    RecalculateCallback, 
                                    ctypes.POINTER(LLModelPromptContext)]
+
+llmodel.llmodel_prompt.restype = None
+
+llmodel.llmodel_setThreadCount.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+llmodel.llmodel_setThreadCount.restype = None
+
+llmodel.llmodel_set_implementation_search_path.argtypes = [ctypes.c_char_p]
+llmodel.llmodel_set_implementation_search_path.restype = None
+
+llmodel.llmodel_threadCount.argtypes = [ctypes.c_void_p]
+llmodel.llmodel_threadCount.restype = ctypes.c_int32
+
+llmodel.llmodel_set_implementation_search_path(MODEL_LIB_PATH.encode('utf-8'))
+
 
 class LLModel:
     """
@@ -90,18 +118,18 @@ class LLModel:
     ----------
     model: llmodel_model
         Ctype pointer to underlying model
-    model_type : str
-        Model architecture identifier
+    model_name: str
+        Model name
     """
-
-    model_type: str = None
 
     def __init__(self):
         self.model = None
         self.model_name = None
+        self.context = None
 
     def __del__(self):
-        pass
+        if self.model is not None:
+            llmodel.llmodel_model_destroy(self.model)
 
     def load_model(self, model_path: str) -> bool:
         """
@@ -116,29 +144,47 @@ class LLModel:
         -------
         True if model loaded successfully, False otherwise
         """
-        llmodel.llmodel_loadModel(self.model, model_path.encode('utf-8'))
+        model_path_enc = model_path.encode("utf-8")
+        self.model = llmodel.llmodel_model_create(model_path_enc)
+
+        if self.model is not None:
+            llmodel.llmodel_loadModel(self.model, model_path_enc)
+        else:
+            raise ValueError("Unable to instantiate model")
+
         filename = os.path.basename(model_path)
         self.model_name = os.path.splitext(filename)[0]
-    
+
         if llmodel.llmodel_isModelLoaded(self.model):
             return True
         else:
             return False
 
-    def generate(self, 
-                 prompt: str,
-                 logits_size: int = 0, 
-                 tokens_size: int = 0, 
-                 n_past: int = 0, 
-                 n_ctx: int = 1024, 
-                 n_predict: int = 128, 
-                 top_k: int = 40, 
-                 top_p: float = .9, 
-                 temp: float = .1, 
-                 n_batch: int = 8, 
-                 repeat_penalty: float = 1.2, 
-                 repeat_last_n: int = 10, 
-                 context_erase: float = .5) -> str:
+    def set_thread_count(self, n_threads):
+        if not llmodel.llmodel_isModelLoaded(self.model):
+            raise Exception("Model not loaded")
+        llmodel.llmodel_setThreadCount(self.model, n_threads)
+
+    def thread_count(self):
+        if not llmodel.llmodel_isModelLoaded(self.model):
+            raise Exception("Model not loaded")
+        return llmodel.llmodel_threadCount(self.model)
+
+    def prompt_model(self, 
+                     prompt: str,
+                     logits_size: int = 0, 
+                     tokens_size: int = 0, 
+                     n_past: int = 0, 
+                     n_ctx: int = 1024, 
+                     n_predict: int = 128, 
+                     top_k: int = 40, 
+                     top_p: float = .9, 
+                     temp: float = .1, 
+                     n_batch: int = 8, 
+                     repeat_penalty: float = 1.2, 
+                     repeat_last_n: int = 10, 
+                     context_erase: float = .5,
+                     streaming: bool = True) -> str:
         """
         Generate response from model from a prompt.
 
@@ -146,12 +192,8 @@ class LLModel:
         ----------
         prompt: str
             Question, task, or conversation for model to respond to
-        add_default_header: bool, optional
-            Whether to add a prompt header (default is True)
-        add_default_footer: bool, optional
-            Whether to add a prompt footer (default is True)
-        verbose: bool, optional
-            Whether to print prompt and response
+        streaming: bool
+            Stream response to stdout
 
         Returns
         -------
@@ -161,95 +203,134 @@ class LLModel:
         prompt = prompt.encode('utf-8')
         prompt = ctypes.c_char_p(prompt)
 
-        # Change stdout to StringIO so we can collect response
         old_stdout = sys.stdout 
-        collect_response = StringIO()
-        sys.stdout = collect_response
 
-        context = LLModelPromptContext(
-            logits_size=logits_size, 
-            tokens_size=tokens_size, 
-            n_past=n_past, 
-            n_ctx=n_ctx, 
-            n_predict=n_predict, 
-            top_k=top_k, 
-            top_p=top_p, 
-            temp=temp, 
-            n_batch=n_batch, 
-            repeat_penalty=repeat_penalty, 
-            repeat_last_n=repeat_last_n, 
-            context_erase=context_erase
-        )
+        stream_processor = DualStreamProcessor()
+    
+        if streaming:
+            stream_processor.stream = sys.stdout
+        
+        sys.stdout = stream_processor
+
+
+        if self.context is None:
+            self.context = LLModelPromptContext(
+                logits_size=logits_size, 
+                tokens_size=tokens_size, 
+                n_past=n_past, 
+                n_ctx=n_ctx, 
+                n_predict=n_predict, 
+                top_k=top_k, 
+                top_p=top_p, 
+                temp=temp, 
+                n_batch=n_batch, 
+                repeat_penalty=repeat_penalty, 
+                repeat_last_n=repeat_last_n, 
+                context_erase=context_erase
+            )
 
         llmodel.llmodel_prompt(self.model, 
                                prompt, 
-                               ResponseCallback(self._prompt_callback), 
+                               PromptCallback(self._prompt_callback),
                                ResponseCallback(self._response_callback), 
                                RecalculateCallback(self._recalculate_callback), 
-                               context)
-        
-        response = collect_response.getvalue()
-        sys.stdout = old_stdout
+                               self.context)
 
-        # Remove the unnecessary new lines from response
-        response = re.sub(r"\n(?!\n)", "", response).strip()
+        # Revert to old stdout
+        sys.stdout = old_stdout
+        # Force new line
+        print()
+        return stream_processor.output
+
+    def generator(self, 
+                  prompt: str,
+                  logits_size: int = 0, 
+                  tokens_size: int = 0, 
+                  n_past: int = 0, 
+                  n_ctx: int = 1024, 
+                  n_predict: int = 128, 
+                  top_k: int = 40, 
+                  top_p: float = .9, 
+                  temp: float = .1, 
+                  n_batch: int = 8, 
+                  repeat_penalty: float = 1.2, 
+                  repeat_last_n: int = 10, 
+                  context_erase: float = .5) -> str:
+
+        # Symbol to terminate from generator
+        TERMINATING_SYMBOL = "#TERMINATE#"
         
-        return response
+        output_queue = queue.Queue()
+
+        prompt = prompt.encode('utf-8')
+        prompt = ctypes.c_char_p(prompt)
+
+        if self.context is None:
+            self.context = LLModelPromptContext(
+                logits_size=logits_size, 
+                tokens_size=tokens_size, 
+                n_past=n_past, 
+                n_ctx=n_ctx, 
+                n_predict=n_predict, 
+                top_k=top_k, 
+                top_p=top_p, 
+                temp=temp, 
+                n_batch=n_batch, 
+                repeat_penalty=repeat_penalty, 
+                repeat_last_n=repeat_last_n, 
+                context_erase=context_erase
+            )
+
+        # Put response tokens into an output queue
+        def _generator_response_callback(token_id, response):
+            output_queue.put(response.decode('utf-8', 'replace'))
+            return True
+
+        def run_llmodel_prompt(model, 
+                               prompt,
+                               prompt_callback,
+                               response_callback,
+                               recalculate_callback,
+                               context):
+            llmodel.llmodel_prompt(model, 
+                                   prompt, 
+                                   prompt_callback,
+                                   response_callback, 
+                                   recalculate_callback, 
+                                   context)
+            output_queue.put(TERMINATING_SYMBOL)
+            
+
+        # Kick off llmodel_prompt in separate thread so we can return generator
+        # immediately
+        thread = threading.Thread(target=run_llmodel_prompt,
+                                  args=(self.model, 
+                                        prompt, 
+                                        PromptCallback(self._prompt_callback),
+                                        ResponseCallback(_generator_response_callback), 
+                                        RecalculateCallback(self._recalculate_callback), 
+                                        self.context))
+        thread.start()
+
+        # Generator
+        while True:
+            response = output_queue.get()
+            if response == TERMINATING_SYMBOL:
+                break
+            yield response
 
     # Empty prompt callback
     @staticmethod
-    def _prompt_callback(token_id, response):
+    def _prompt_callback(token_id):
         return True
 
     # Empty response callback method that just prints response to be collected
     @staticmethod
     def _response_callback(token_id, response):
-        print(response.decode('utf-8'))
+        sys.stdout.write(response.decode('utf-8', 'replace'))
         return True
 
     # Empty recalculate callback
     @staticmethod
     def _recalculate_callback(is_recalculating):
         return is_recalculating
-
-
-class GPTJModel(LLModel):
-
-    model_type = "gptj"
-
-    def __init__(self):
-        super().__init__()
-        self.model = llmodel.llmodel_gptj_create()
-
-    def __del__(self):
-        if self.model is not None:
-            llmodel.llmodel_gptj_destroy(self.model)
-        super().__del__()
-
-
-class LlamaModel(LLModel):
-
-    model_type = "llama"
-
-    def __init__(self):
-        super().__init__()
-        self.model = llmodel.llmodel_llama_create()
-
-    def __del__(self):
-        if self.model is not None:
-            llmodel.llmodel_llama_destroy(self.model)
-        super().__del__()
-
-
-class MPTModel(LLModel):
-
-    model_type = "mpt"
-
-    def __init__(self):
-        super().__init__()
-        self.model = llmodel.llmodel_mpt_create()
-
-    def __del__(self):
-        if self.model is not None:
-            llmodel.llmodel_mpt_destroy(self.model)
-        super().__del__()
